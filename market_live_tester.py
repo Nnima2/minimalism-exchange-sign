@@ -9,6 +9,19 @@ from datetime import datetime
 REFRESH_SECONDS = 10
 TIMEOUT = 8
 
+# Tehran Stock Exchange / Iran Fara Bourse symbols requested by the user.
+# TSETMC provides a bulk market-watch endpoint, so we fetch all of them in one call.
+TSETMC_MARKETWATCH_URL = "https://cdn.tsetmc.com/api/ClosingPrice/GetMarketWatch?market=0&paperTypes[0]=1&paperTypes[1]=2&paperTypes[2]=3&paperTypes[3]=4&paperTypes[4]=5&paperTypes[5]=6&paperTypes[6]=7&paperTypes[7]=8&paperTypes[8]=9&withBestLimits=false&hEven=0&RefID=0"
+
+IRAN_SYMBOLS = [
+    ("کارا", "کارا"), ("یاقوت", "یاقوت"), ("آوند", "آوند"),
+    ("پاسارگاد", "وپاسار"), ("سبپ", "سبپ"), ("عیار", "عیار"),
+    ("اطلس", "اطلس"), ("آگاس", "آگاس"), ("سیمانو", "سیمانو"),
+    ("دارا یکم", "دارا یکم"), ("اهرم", "اهرم"), ("توان", "توان"),
+    ("وبملت", "وبملت"), ("وتجارت", "وتجارت"), ("خودرو", "خودرو"),
+    ("وبصادر", "وبصادر"), ("خساپا", "خساپا"),
+]
+
 # Public endpoints: no API keys required for this tester.
 NOBITEX_URL = "https://apiv2.nobitex.ir/v3/orderbook/USDTIRT"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
@@ -76,6 +89,49 @@ def yahoo_last(symbol):
         price = closes[-1]
     return float(price)
 
+
+
+def yahoo_fx_eurusd():
+    """EUR/USD from Yahoo; converted to IRR using the local USDT/IRR rate."""
+    return yahoo_last("EURUSD=X")
+
+
+def tsetmc_marketwatch():
+    """Fetch the whole TSETMC market watch once and index requested symbols."""
+    r = http_get(TSETMC_MARKETWATCH_URL, headers={"User-Agent": "Mozilla/5.0"})
+    data = r.json()
+    rows = data.get("marketwatch", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("TSETMC marketwatch returned an unexpected format")
+
+    wanted = {query for _, query in IRAN_SYMBOLS}
+    aliases = {"دارا_یکم": "دارا یکم", "پاسارگاد": "وپاسار"}
+    out = {}
+    for row in rows:
+        symbol = str(row.get("lVal18AFC", "")).strip()
+        normalized = aliases.get(symbol, symbol)
+        if normalized not in wanted:
+            continue
+        price = row.get("pDrCotVal")
+        if price is None:
+            price = row.get("pl")
+        if price is None:
+            price = row.get("pClosing")
+        if price is None:
+            price = row.get("pc")
+        if price is None:
+            continue
+        try:
+            out[normalized] = {
+                "price": float(price),
+                "symbol": symbol,
+                "name": row.get("lVal30", ""),
+                "change": row.get("percentLastChange", row.get("percentChange", "")),
+            }
+        except (TypeError, ValueError):
+            pass
+    return out
+
 def format_irr(x):
     return f"{x:,.0f} ریال"
 
@@ -136,7 +192,35 @@ def update_market():
                 set_value("نفت", format_irr(oil_irr), "WTI/barrel")
                 log(f"Oil calculated | WTI=${yahoo_prices['نفت']:.4f} | {oil_irr:,.0f} IRR/barrel")
 
-        # 3) BTC / ETH via CoinGecko (replacing Binance)
+        # 3) EUR/USD -> EUR/IRR
+        try:
+            eurusd = yahoo_fx_eurusd()
+            log(f"Yahoo OK | EURUSD={eurusd:.6f}")
+            if usdt_irt:
+                eur_irr = eurusd * usdt_irt
+                set_value("یورو", format_irr(eur_irr), f"EURUSD={eurusd:.4f}")
+                log(f"EUR calculated | EUR/USD={eurusd:.6f} | EUR/IRR={eur_irr:,.0f}")
+        except Exception as e:
+            set_value("یورو", "ERROR", "Yahoo")
+            log(f"Yahoo ERROR | EURUSD=X: {type(e).__name__}: {e}")
+
+        # 4) Tehran Stock Exchange / IFB symbols via one bulk TSETMC request
+        try:
+            stock_data = tsetmc_marketwatch()
+            for display_name, query_name in IRAN_SYMBOLS:
+                item = stock_data.get(query_name)
+                if item is None:
+                    set_value(display_name, "N/A", "TSETMC")
+                    log(f"TSETMC NOT FOUND | {display_name} (query={query_name})")
+                    continue
+                set_value(display_name, format_irr(item["price"]), "آخرین معامله")
+                log(f"TSETMC OK | {display_name}/{item['symbol']}={item['price']:,.0f} IRR")
+        except Exception as e:
+            for display_name, _ in IRAN_SYMBOLS:
+                set_value(display_name, "ERROR", "TSETMC")
+            log(f"TSETMC ERROR: {type(e).__name__}: {e}")
+
+        # 5) BTC / ETH via CoinGecko (replacing Binance)
         try:
             btc_usd, eth_usd = coingecko_prices()
             log(f"CoinGecko OK | BTC=${btc_usd:,.2f} | ETH=${eth_usd:,.2f}")
@@ -206,6 +290,7 @@ for c in range(4):
 items = [
     ("تتر", "USDT/IRT"),
     ("دلار", "≈ USDT/IRT"),
+    ("یورو", "EUR/IRR"),
     ("طلا", "18K / gram"),
     ("نقره", "pure / gram"),
     ("نفت", "WTI / barrel"),
@@ -232,6 +317,21 @@ for i, (name, subtitle) in enumerate(items):
 # Give empty 8th cell no height impact.
 for c in range(4):
     cards.columnconfigure(c, weight=1)
+
+# Requested Tehran market symbols
+stocks_frame = ttk.LabelFrame(root, text="بورس / فرابورس ایران — آخرین معامله", padding=(6, 4))
+stocks_frame.pack(fill="x", padx=10, pady=(2, 3))
+for c in range(6):
+    stocks_frame.columnconfigure(c, weight=1)
+
+for i, (display_name, _) in enumerate(IRAN_SYMBOLS):
+    row, col = divmod(i, 6)
+    card = ttk.LabelFrame(stocks_frame, text=display_name, padding=(6, 3))
+    card.grid(row=row, column=col, sticky="nsew", padx=2, pady=2)
+    values[display_name] = ttk.Label(card, text="در حال دریافت...", font=("Segoe UI", 9, "bold"))
+    values[display_name].pack(anchor="w")
+    statuses[display_name] = ttk.Label(card, text="TSETMC", font=("Segoe UI", 7))
+    statuses[display_name].pack(anchor="w")
 
 # Log gets most of the window.
 log_frame = ttk.LabelFrame(root, text="لاگ فنی — برای ارسال به ChatGPT", padding=6)
@@ -269,7 +369,7 @@ last_update = ttk.Label(root, text="آخرین تلاش: --:--:--",
 last_update.pack(anchor="w")
 
 log("برنامه شروع شد.")
-log("v2: Nobitex (USDT/IRT) + Yahoo Finance (Gold/Silver/WTI) + CoinGecko (BTC/ETH).")
+log("v3: Nobitex + Yahoo (Gold/Silver/WTI/EURUSD) + CoinGecko (BTC/ETH) + TSETMC (بورس/فرابورس).")
 log("Binance حذف شد چون HTTP 451 می‌داد.")
 log("این نسخه برای تست اولیه هیچ API Key نمی‌خواهد.")
 

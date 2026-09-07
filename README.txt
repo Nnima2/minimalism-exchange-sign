@@ -1,49 +1,26 @@
-# Market Live Tester v2
+Market Live Tester v3
 
-نسخه دوم تستر قیمت بازار.
-
-دارایی‌ها:
-- USDT/IRT
-- USD/IRT (فعلاً به صورت تقریب USDT/IRT)
-- طلای ۱۸ عیار / گرم / ریال
-- نقره / گرم / ریال
-- نفت WTI / بشکه / ریال
-- Bitcoin / ریال
-- Ethereum / ریال
+این نسخه علاوه بر داده‌های قبلی، یورو و نمادهای بورس/فرابورس ایران را اضافه می‌کند.
 
 منابع:
-- Nobitex public orderbook برای USDT/IRT
-- Yahoo Finance chart endpoint برای GC=F, SI=F, CL=F
-- CoinGecko public API برای BTC و ETH
-- Binance در v2 حذف شد چون در تست کاربر HTTP 451 می‌داد.
+- Nobitex: USDT/IRT
+- Yahoo Finance: Gold, Silver, WTI, EUR/USD
+- CoinGecko: BTC, ETH
+- TSETMC CDN market watch: نمادهای بورس/فرابورس
 
-API Key:
-این نسخه API Key نمی‌خواهد.
-
-اجرا:
-python -m pip install -r requirements.txt
-python market_live_tester.py
-
-Windows:
-py -m pip install -r requirements.txt
-py market_live_tester.py
-
-UI:
-کارت‌های قیمت کوچک‌تر و فشرده‌تر شده‌اند و لاگ بخش اصلی پنجره را می‌گیرد.
-اسکرول عمودی و افقی برای لاگ وجود دارد.
-دکمه کپی کل لاگ‌ها همه لاگ‌های ذخیره‌شده را در Clipboard می‌گذارد.
-
-فرمول طلا:
-Gold USD/oz / 31.1034768 * 0.75 * USDT/IRR
-
-فرمول نقره:
-Silver USD/oz / 31.1034768 * USDT/IRR
-
-فرمول نفت:
-WTI USD/barrel * USDT/IRR
-
-فرمول BTC/ETH:
-USD price * USDT/IRR
+نمادهای اضافه‌شده:
+کارا، یاقوت، آوند، پاسارگاد(وپاسار)، سبپ، عیار، اطلس، آگاس، سیمانو، دارا یکم، اهرم، توان، وبملت، وتجارت، خودرو، وبصادر، خساپا
 
 نکته:
-قیمت طلای ۱۸ عیار محاسبه‌شده قیمت خام تئوریک است و شامل اجرت، مالیات، حباب و اختلاف بازار ایران نیست.
+- «پاسارگاد» در TSETMC با نماد «وپاسار» جستجو می‌شود.
+- «سبپ» همان‌طور که وارد شده جستجو می‌شود؛ اگر TSETMC چنین نمادی برنگرداند، در لاگ N/A نمایش داده می‌شود تا نماد دقیق را مشخص کنیم.
+- قیمت نمادهای بورس/فرابورس به ریال و بر اساس آخرین معامله است.
+- TSETMC عمومی/غیررسمی است و ممکن است برای IP خارج از ایران یا هنگام بسته بودن بازار محدود شود.
+- برای کاهش فشار روی سرویس، نمادها با یک درخواست bulk از market watch دریافت می‌شوند.
+
+اجرا:
+1) Python 3.10+ نصب باشد.
+2) pip install -r requirements.txt
+3) python market_live_tester.py
+
+VPN لازم نیست. اگر TSETMC بدون VPN کار نکرد، لاگ را با دکمه «کپی کل لاگ‌ها به Clipboard» بفرست.
