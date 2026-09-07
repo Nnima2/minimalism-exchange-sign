@@ -1,26 +1,6 @@
-Market Live Tester v3
+Market Live Tester v4
 
-این نسخه علاوه بر داده‌های قبلی، یورو و نمادهای بورس/فرابورس ایران را اضافه می‌کند.
+TSE symbols use official tse.ir web gateway bulk Cash + ETF feeds. Run without VPN from an Iranian IP for TSE data.
 
-منابع:
-- Nobitex: USDT/IRT
-- Yahoo Finance: Gold, Silver, WTI, EUR/USD
-- CoinGecko: BTC, ETH
-- TSETMC CDN market watch: نمادهای بورس/فرابورس
-
-نمادهای اضافه‌شده:
-کارا، یاقوت، آوند، پاسارگاد(وپاسار)، سبپ، عیار، اطلس، آگاس، سیمانو، دارا یکم، اهرم، توان، وبملت، وتجارت، خودرو، وبصادر، خساپا
-
-نکته:
-- «پاسارگاد» در TSETMC با نماد «وپاسار» جستجو می‌شود.
-- «سبپ» همان‌طور که وارد شده جستجو می‌شود؛ اگر TSETMC چنین نمادی برنگرداند، در لاگ N/A نمایش داده می‌شود تا نماد دقیق را مشخص کنیم.
-- قیمت نمادهای بورس/فرابورس به ریال و بر اساس آخرین معامله است.
-- TSETMC عمومی/غیررسمی است و ممکن است برای IP خارج از ایران یا هنگام بسته بودن بازار محدود شود.
-- برای کاهش فشار روی سرویس، نمادها با یک درخواست bulk از market watch دریافت می‌شوند.
-
-اجرا:
-1) Python 3.10+ نصب باشد.
-2) pip install -r requirements.txt
-3) python market_live_tester.py
-
-VPN لازم نیست. اگر TSETMC بدون VPN کار نکرد، لاگ را با دکمه «کپی کل لاگ‌ها به Clipboard» بفرست.
+Install: pip install -r requirements.txt
+Run: python market_live_tester.py

@@ -11,7 +11,8 @@ TIMEOUT = 8
 
 # Tehran Stock Exchange / Iran Fara Bourse symbols requested by the user.
 # TSETMC provides a bulk market-watch endpoint, so we fetch all of them in one call.
-TSETMC_MARKETWATCH_URL = "https://cdn.tsetmc.com/api/ClosingPrice/GetMarketWatch?market=0&paperTypes[0]=1&paperTypes[1]=2&paperTypes[2]=3&paperTypes[3]=4&paperTypes[4]=5&paperTypes[5]=6&paperTypes[6]=7&paperTypes[7]=8&paperTypes[8]=9&withBestLimits=false&hEven=0&RefID=0"
+WEBGW_CASH_URL = "https://webgw.tse.ir/InstrumentProvider/api/v1/MarketWatch/MarketWatchCash/fa"
+WEBGW_ETF_URL = "https://webgw.tse.ir/InstrumentProvider/api/v1/MarketWatch/MarketWatchEtf/fa"
 
 IRAN_SYMBOLS = [
     ("کارا", "کارا"), ("یاقوت", "یاقوت"), ("آوند", "آوند"),
@@ -96,40 +97,71 @@ def yahoo_fx_eurusd():
     return yahoo_last("EURUSD=X")
 
 
-def tsetmc_marketwatch():
-    """Fetch the whole TSETMC market watch once and index requested symbols."""
-    r = http_get(TSETMC_MARKETWATCH_URL, headers={"User-Agent": "Mozilla/5.0"})
-    data = r.json()
-    rows = data.get("marketwatch", [])
-    if not isinstance(rows, list):
-        raise RuntimeError("TSETMC marketwatch returned an unexpected format")
+def normalize_fa(text):
+    text = str(text or "").strip()
+    return (text.replace("ي", "ی").replace("ك", "ک")
+                .replace("_", "").replace(" ", "")
+                .replace("\u200c", "").replace("\u200f", ""))
 
-    wanted = {query for _, query in IRAN_SYMBOLS}
-    aliases = {"دارا_یکم": "دارا یکم", "پاسارگاد": "وپاسار"}
+def webgw_marketwatch(url, kind):
+    r = http_get(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.tse.ir/",
+    })
+    data = r.json()
+    rows = data.get("Items", []) if isinstance(data, dict) else []
+    if not isinstance(rows, list):
+        raise RuntimeError(f"TSE webgw {kind} returned unexpected JSON")
+    return rows
+
+def tsetmc_marketwatch():
+    """Use the official tse.ir web gateway. Cash and ETF are separate feeds."""
+    rows = []
+    errors = []
+    for url, kind in ((WEBGW_CASH_URL, "Cash"), (WEBGW_ETF_URL, "ETF")):
+        try:
+            got = webgw_marketwatch(url, kind)
+            rows.extend(got)
+            log(f"TSE webgw OK | {kind} items={len(got)}")
+        except Exception as e:
+            errors.append(f"{kind}: {type(e).__name__}: {e}")
+            log(f"TSE webgw ERROR | {kind}: {type(e).__name__}: {e}")
+
+    if not rows:
+        raise RuntimeError("Both TSE webgw Cash/ETF feeds returned no data")
+
+    wanted = {normalize_fa(query) for _, query in IRAN_SYMBOLS}
     out = {}
     for row in rows:
-        symbol = str(row.get("lVal18AFC", "")).strip()
-        normalized = aliases.get(symbol, symbol)
-        if normalized not in wanted:
+        symbol = row.get("instrumentName") or row.get("instrument_Name") or row.get("symbol") or ""
+        symbol_n = normalize_fa(symbol)
+        if symbol_n not in wanted:
             continue
-        price = row.get("pDrCotVal")
+
+        # Official webgw uses lastPrice.value in current responses.
+        lp = row.get("lastPrice")
+        price = lp.get("value") if isinstance(lp, dict) else lp
         if price is None:
-            price = row.get("pl")
+            price = row.get("lastprice")
+        if isinstance(price, dict):
+            price = price.get("value")
         if price is None:
-            price = row.get("pClosing")
-        if price is None:
-            price = row.get("pc")
+            cp = row.get("closingPrice")
+            price = cp.get("value") if isinstance(cp, dict) else cp
+
         if price is None:
             continue
         try:
-            out[normalized] = {
+            out[symbol_n] = {
                 "price": float(price),
-                "symbol": symbol,
-                "name": row.get("lVal30", ""),
-                "change": row.get("percentLastChange", row.get("percentChange", "")),
+                "symbol": str(symbol).strip(),
+                "name": row.get("companyNamePersian") or row.get("company_Name_Persian") or "",
+                "change": ((lp or {}).get("percent") if isinstance(lp, dict) else ""),
             }
         except (TypeError, ValueError):
-            pass
+            continue
+
     return out
 
 def format_irr(x):
@@ -263,7 +295,7 @@ def clear_logs():
     log("لاگ پاک شد.")
 
 root = tk.Tk()
-root.title("Market Live Tester v2")
+root.title("Market Live Tester v4")
 root.geometry("1000x850")
 root.minsize(900, 720)
 
@@ -369,8 +401,9 @@ last_update = ttk.Label(root, text="آخرین تلاش: --:--:--",
 last_update.pack(anchor="w")
 
 log("برنامه شروع شد.")
-log("v3: Nobitex + Yahoo (Gold/Silver/WTI/EURUSD) + CoinGecko (BTC/ETH) + TSETMC (بورس/فرابورس).")
+log("v4: Nobitex + Yahoo + CoinGecko + TSE official web gateway (Cash + ETF).")
 log("Binance حذف شد چون HTTP 451 می‌داد.")
+log("TSE symbols now use webgw.tse.ir Cash/ETF bulk feeds instead of the old CDN market-watch endpoint.")
 log("این نسخه برای تست اولیه هیچ API Key نمی‌خواهد.")
 
 root.after(200, update_market)
