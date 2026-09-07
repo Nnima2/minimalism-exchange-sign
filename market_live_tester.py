@@ -9,24 +9,28 @@ from datetime import datetime
 REFRESH_SECONDS = 10
 TIMEOUT = 8
 
-# Public endpoints: no API keys are required.
+# Public endpoints: no API keys required for this tester.
 NOBITEX_URL = "https://apiv2.nobitex.ir/v3/orderbook/USDTIRT"
-BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
+COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 
 session = requests.Session()
-session.headers.update({"User-Agent": "MarketLiveTester/1.0"})
+session.headers.update({"User-Agent": "MarketLiveTester/2.0"})
 
 log_lines = []
+updating = False
 
 def log(msg):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{stamp}] {msg}"
     log_lines.append(line)
-    if len(log_lines) > 500:
-        del log_lines[:-500]
-    root.after(0, lambda: log_box.insert("end", line + "\n"))
-    root.after(0, lambda: log_box.see("end"))
+    if len(log_lines) > 1000:
+        del log_lines[:-1000]
+    root.after(0, lambda: append_log(line))
+
+def append_log(line):
+    log_box.insert("end", line + "\n")
+    log_box.see("end")
 
 def http_get(url, **kwargs):
     r = session.get(url, timeout=TIMEOUT, **kwargs)
@@ -42,11 +46,18 @@ def nobitex_usdt_irt():
         raise RuntimeError("Nobitex returned no bids/asks")
     ask = float(asks[0][0])
     bid = float(bids[0][0])
-    return (bid + ask) / 2.0, {"bid": bid, "ask": ask}
+    return (bid + ask) / 2.0, bid, ask
 
-def binance_usdt(symbol):
-    r = http_get(BINANCE_URL, params={"symbol": symbol + "USDT"})
-    return float(r.json()["price"]), {}
+def coingecko_prices():
+    r = http_get(
+        COINGECKO_URL,
+        params={
+            "ids": "bitcoin,ethereum",
+            "vs_currencies": "usd"
+        }
+    )
+    data = r.json()
+    return float(data["bitcoin"]["usd"]), float(data["ethereum"]["usd"])
 
 def yahoo_last(symbol):
     r = http_get(
@@ -63,13 +74,10 @@ def yahoo_last(symbol):
         if not closes:
             raise RuntimeError(f"No price returned for {symbol}")
         price = closes[-1]
-    return float(price), {}
+    return float(price)
 
 def format_irr(x):
     return f"{x:,.0f} ریال"
-
-def format_usd(x):
-    return f"${x:,.4f}"
 
 def set_value(name, value, status="OK"):
     root.after(0, lambda: values[name].config(text=value))
@@ -83,75 +91,72 @@ def update_market():
     log("---- شروع به‌روزرسانی ----")
 
     def worker():
-        try:
-            # USDT/IRT from Nobitex. This endpoint is public and needs no key.
-            try:
-                usdt_irt, nb = nobitex_usdt_irt()
-                set_value("تتر", format_irr(usdt_irt))
-                set_value("دلار", format_irr(usdt_irt), "≈ تتر")
-                log(f"Nobitex OK | USDT/IRT mid={usdt_irt:,.0f} | bid={nb['bid']:,.0f} ask={nb['ask']:,.0f}")
-            except Exception as e:
-                set_value("تتر", "ERROR", "Nobitex")
-                set_value("دلار", "ERROR", "Nobitex")
-                log(f"Nobitex ERROR: {type(e).__name__}: {e}")
-                usdt_irt = None
+        usdt_irt = None
 
-            # Gold, silver and WTI from Yahoo Finance chart endpoint.
-            yahoo_symbols = {
-                "طلا": "GC=F",      # Gold futures, USD / troy oz
-                "نقره": "SI=F",     # Silver futures, USD / troy oz
-                "نفت": "CL=F",      # WTI crude oil, USD / barrel
-            }
-            yahoo_prices = {}
-            for name, symbol in yahoo_symbols.items():
-                try:
-                    p, _ = yahoo_last(symbol)
-                    yahoo_prices[name] = p
-                    log(f"Yahoo OK | {symbol}={p}")
-                except Exception as e:
-                    log(f"Yahoo ERROR | {symbol}: {type(e).__name__}: {e}")
+        # 1) USDT/IRR
+        try:
+            usdt_irt, bid, ask = nobitex_usdt_irt()
+            set_value("تتر", format_irr(usdt_irt))
+            set_value("دلار", format_irr(usdt_irt), "≈ USDT")
+            log(f"Nobitex OK | USDT/IRT mid={usdt_irt:,.0f} | bid={bid:,.0f} ask={ask:,.0f}")
+        except Exception as e:
+            set_value("تتر", "ERROR", "Nobitex")
+            set_value("دلار", "ERROR", "Nobitex")
+            log(f"Nobitex ERROR: {type(e).__name__}: {e}")
+
+        # 2) Gold / Silver / WTI
+        yahoo_symbols = {
+            "طلا": "GC=F",
+            "نقره": "SI=F",
+            "نفت": "CL=F",
+        }
+        yahoo_prices = {}
+        for name, symbol in yahoo_symbols.items():
+            try:
+                p = yahoo_last(symbol)
+                yahoo_prices[name] = p
+                log(f"Yahoo OK | {symbol}={p}")
+            except Exception as e:
+                set_value(name, "ERROR", "Yahoo")
+                log(f"Yahoo ERROR | {symbol}: {type(e).__name__}: {e}")
+
+        if usdt_irt:
+            if "طلا" in yahoo_prices:
+                gold18_irr = yahoo_prices["طلا"] / 31.1034768 * 0.75 * usdt_irt
+                set_value("طلا", format_irr(gold18_irr), "18K/gram")
+                log(f"Gold calculated | ${yahoo_prices['طلا']:.4f}/oz | 18K/g={gold18_irr:,.0f} IRR")
+
+            if "نقره" in yahoo_prices:
+                silver_gram_irr = yahoo_prices["نقره"] / 31.1034768 * usdt_irt
+                set_value("نقره", format_irr(silver_gram_irr), "pure/g")
+                log(f"Silver calculated | ${yahoo_prices['نقره']:.4f}/oz | g={silver_gram_irr:,.0f} IRR")
+
+            if "نفت" in yahoo_prices:
+                oil_irr = yahoo_prices["نفت"] * usdt_irt
+                set_value("نفت", format_irr(oil_irr), "WTI/barrel")
+                log(f"Oil calculated | WTI=${yahoo_prices['نفت']:.4f} | {oil_irr:,.0f} IRR/barrel")
+
+        # 3) BTC / ETH via CoinGecko (replacing Binance)
+        try:
+            btc_usd, eth_usd = coingecko_prices()
+            log(f"CoinGecko OK | BTC=${btc_usd:,.2f} | ETH=${eth_usd:,.2f}")
 
             if usdt_irt:
-                if "طلا" in yahoo_prices:
-                    # 1 troy oz = 31.1034768 grams; 18K = 75% pure gold.
-                    gold18_irr = yahoo_prices["طلا"] / 31.1034768 * 0.75 * usdt_irt
-                    set_value("طلا", format_irr(gold18_irr), "18K/gram")
-                    log(f"Gold calculated | raw ounce=${yahoo_prices['طلا']:.4f} | 18K/g={gold18_irr:,.0f} IRR")
-                else:
-                    set_value("طلا", "ERROR", "Yahoo")
+                btc_irr = btc_usd * usdt_irt
+                eth_irr = eth_usd * usdt_irt
+                set_value("بیت‌کوین", format_irr(btc_irr), f"${btc_usd:,.2f}")
+                set_value("اتریوم", format_irr(eth_irr), f"${eth_usd:,.2f}")
+                log(f"BTC calculated | {btc_irr:,.0f} IRR")
+                log(f"ETH calculated | {eth_irr:,.0f} IRR")
+            else:
+                set_value("بیت‌کوین", f"${btc_usd:,.2f}", "USD")
+                set_value("اتریوم", f"${eth_usd:,.2f}", "USD")
+        except Exception as e:
+            set_value("بیت‌کوین", "ERROR", "CoinGecko")
+            set_value("اتریوم", "ERROR", "CoinGecko")
+            log(f"CoinGecko ERROR: {type(e).__name__}: {e}")
 
-                if "نقره" in yahoo_prices:
-                    silver_gram_irr = yahoo_prices["نقره"] / 31.1034768 * usdt_irt
-                    set_value("نقره", format_irr(silver_gram_irr), "pure/g")
-                    log(f"Silver calculated | raw ounce=${yahoo_prices['نقره']:.4f} | g={silver_gram_irr:,.0f} IRR")
-                else:
-                    set_value("نقره", "ERROR", "Yahoo")
-
-                if "نفت" in yahoo_prices:
-                    oil_irr = yahoo_prices["نفت"] * usdt_irt
-                    set_value("نفت", format_irr(oil_irr), "WTI/barrel")
-                    log(f"Oil calculated | WTI=${yahoo_prices['نفت']:.4f} | {oil_irr:,.0f} IRR/barrel")
-                else:
-                    set_value("نفت", "ERROR", "Yahoo")
-
-            # Crypto in USD via Binance, then convert to IRR.
-            for name, symbol in [("بیت‌کوین", "BTC"), ("اتریوم", "ETH")]:
-                try:
-                    p, _ = binance_usdt(symbol)
-                    if usdt_irt:
-                        irr = p * usdt_irt
-                        set_value(name, format_irr(irr), f"${p:,.2f}")
-                        log(f"Binance OK | {symbol}/USDT={p:.6f} | IRR={irr:,.0f}")
-                    else:
-                        set_value(name, format_usd(p), "USD/USDT unavailable")
-                except Exception as e:
-                    set_value(name, "ERROR", "Binance")
-                    log(f"Binance ERROR | {symbol}: {type(e).__name__}: {e}")
-
-        except Exception:
-            log("UNEXPECTED ERROR:\n" + traceback.format_exc())
-        finally:
-            root.after(0, finish_update)
+        root.after(0, finish_update)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -174,9 +179,9 @@ def clear_logs():
     log("لاگ پاک شد.")
 
 root = tk.Tk()
-root.title("Market Live Tester — بدون API Key")
-root.geometry("920x700")
-root.minsize(820, 620)
+root.title("Market Live Tester v2")
+root.geometry("1000x850")
+root.minsize(900, 720)
 
 style = ttk.Style()
 try:
@@ -184,73 +189,88 @@ try:
 except Exception:
     pass
 
-header = ttk.Frame(root, padding=12)
+# Compact header
+header = ttk.Frame(root, padding=(10, 8))
 header.pack(fill="x")
+ttk.Label(header, text="Live Market Tester v2",
+          font=("Segoe UI", 17, "bold")).pack(side="left")
+ttk.Label(header, text=f"Auto refresh: {REFRESH_SECONDS}s",
+          font=("Segoe UI", 9)).pack(side="right")
 
-ttk.Label(
-    header,
-    text="Live Market Tester",
-    font=("Segoe UI", 20, "bold")
-).pack(side="left")
-
-ttk.Label(
-    header,
-    text=f"به‌روزرسانی خودکار هر {REFRESH_SECONDS} ثانیه",
-).pack(side="right")
-
-frame = ttk.Frame(root, padding=(12, 0, 12, 8))
-frame.pack(fill="x")
-
-values = {}
-statuses = {}
+# Compact 7-card grid: 4 columns to save vertical space.
+cards = ttk.Frame(root, padding=(10, 0, 10, 4))
+cards.pack(fill="x")
+for c in range(4):
+    cards.columnconfigure(c, weight=1)
 
 items = [
     ("تتر", "USDT/IRT"),
     ("دلار", "≈ USDT/IRT"),
-    ("طلا", "18K / gram / IRR"),
-    ("نقره", "pure / gram / IRR"),
-    ("نفت", "WTI / barrel / IRR"),
+    ("طلا", "18K / gram"),
+    ("نقره", "pure / gram"),
+    ("نفت", "WTI / barrel"),
     ("بیت‌کوین", "BTC / IRR"),
     ("اتریوم", "ETH / IRR"),
 ]
 
-for i, (name, subtitle) in enumerate(items):
-    card = ttk.LabelFrame(frame, text=name, padding=10)
-    card.grid(row=i // 2, column=i % 2, sticky="nsew", padx=6, pady=6)
-    frame.columnconfigure(0, weight=1)
-    frame.columnconfigure(1, weight=1)
+values = {}
+statuses = {}
 
-    values[name] = ttk.Label(card, text="در حال دریافت...", font=("Segoe UI", 15, "bold"))
+for i, (name, subtitle) in enumerate(items):
+    row, col = divmod(i, 4)
+    card = ttk.LabelFrame(cards, text=name, padding=(8, 5))
+    card.grid(row=row, column=col, sticky="nsew", padx=4, pady=3)
+
+    values[name] = ttk.Label(card, text="در حال دریافت...",
+                             font=("Segoe UI", 11, "bold"))
     values[name].pack(anchor="w")
-    ttk.Label(card, text=subtitle).pack(anchor="w", pady=(3, 0))
-    statuses[name] = ttk.Label(card, text="WAIT")
+
+    ttk.Label(card, text=subtitle, font=("Segoe UI", 8)).pack(anchor="w")
+    statuses[name] = ttk.Label(card, text="WAIT", font=("Segoe UI", 8))
     statuses[name].pack(anchor="w")
 
-# Make last card span both columns.
-# (The grid above already placed it in row 3, col 0.)
-log_frame = ttk.LabelFrame(root, text="لاگ فنی — برای ارسال به ChatGPT", padding=8)
-log_frame.pack(fill="both", expand=True, padx=12, pady=8)
+# Give empty 8th cell no height impact.
+for c in range(4):
+    cards.columnconfigure(c, weight=1)
 
-log_box = tk.Text(log_frame, height=14, wrap="word", font=("Consolas", 9))
-log_box.pack(fill="both", expand=True, side="left")
+# Log gets most of the window.
+log_frame = ttk.LabelFrame(root, text="لاگ فنی — برای ارسال به ChatGPT", padding=6)
+log_frame.pack(fill="both", expand=True, padx=10, pady=(3, 5))
 
-scroll = ttk.Scrollbar(log_frame, orient="vertical", command=log_box.yview)
-scroll.pack(side="right", fill="y")
-log_box.configure(yscrollcommand=scroll.set)
+log_box = tk.Text(
+    log_frame,
+    wrap="none",
+    font=("Consolas", 9),
+    height=30
+)
+log_box.pack(side="left", fill="both", expand=True)
 
-buttons = ttk.Frame(root, padding=(12, 0, 12, 12))
+scroll_y = ttk.Scrollbar(log_frame, orient="vertical", command=log_box.yview)
+scroll_y.pack(side="right", fill="y")
+
+scroll_x = ttk.Scrollbar(root, orient="horizontal", command=log_box.xview)
+scroll_x.pack(fill="x", padx=10)
+
+log_box.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+
+# Buttons
+buttons = ttk.Frame(root, padding=(10, 2, 10, 5))
 buttons.pack(fill="x")
 
-ttk.Button(buttons, text="کپی کل لاگ‌ها به Clipboard", command=copy_logs).pack(side="left", padx=(0, 8))
-ttk.Button(buttons, text="پاک کردن لاگ", command=clear_logs).pack(side="left", padx=8)
-ttk.Button(buttons, text="به‌روزرسانی فوری", command=update_market).pack(side="right")
+ttk.Button(buttons, text="کپی کل لاگ‌ها به Clipboard",
+           command=copy_logs).pack(side="left", padx=(0, 6))
+ttk.Button(buttons, text="پاک کردن لاگ",
+           command=clear_logs).pack(side="left", padx=6)
+ttk.Button(buttons, text="به‌روزرسانی فوری",
+           command=update_market).pack(side="right")
 
-last_update = ttk.Label(root, text="آخرین تلاش: --:--:--", padding=(12, 0, 12, 8))
+last_update = ttk.Label(root, text="آخرین تلاش: --:--:--",
+                        padding=(10, 0, 10, 6))
 last_update.pack(anchor="w")
 
-updating = False
 log("برنامه شروع شد.")
-log("منابع: Nobitex (USDT/IRT) + Yahoo Finance (Gold/Silver/WTI) + Binance (BTC/ETH).")
+log("v2: Nobitex (USDT/IRT) + Yahoo Finance (Gold/Silver/WTI) + CoinGecko (BTC/ETH).")
+log("Binance حذف شد چون HTTP 451 می‌داد.")
 log("این نسخه برای تست اولیه هیچ API Key نمی‌خواهد.")
 
 root.after(200, update_market)

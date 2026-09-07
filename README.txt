@@ -1,43 +1,49 @@
-# Market Live Tester
+# Market Live Tester v2
 
-نسخه تست اولیه برای نمایش:
+نسخه دوم تستر قیمت بازار.
+
+دارایی‌ها:
 - USDT/IRT
-- USD/IRT (تقریباً برابر USDT/IRT)
+- USD/IRT (فعلاً به صورت تقریب USDT/IRT)
 - طلای ۱۸ عیار / گرم / ریال
 - نقره / گرم / ریال
 - نفت WTI / بشکه / ریال
 - Bitcoin / ریال
 - Ethereum / ریال
 
-## API Key
-این نسخه عمداً از endpointهای عمومی استفاده می‌کند و برای تست اولیه API Key نمی‌خواهد.
-
 منابع:
-- Nobitex public orderbook: USDTIRT
-- Yahoo Finance chart endpoint: GC=F, SI=F, CL=F
-- Binance public ticker: BTCUSDT, ETHUSDT
+- Nobitex public orderbook برای USDT/IRT
+- Yahoo Finance chart endpoint برای GC=F, SI=F, CL=F
+- CoinGecko public API برای BTC و ETH
+- Binance در v2 حذف شد چون در تست کاربر HTTP 451 می‌داد.
 
-## اجرا
-```bash
+API Key:
+این نسخه API Key نمی‌خواهد.
+
+اجرا:
 python -m pip install -r requirements.txt
 python market_live_tester.py
-```
 
-اگر روی Windows دستور `python` کار نکرد:
-```bash
+Windows:
 py -m pip install -r requirements.txt
 py market_live_tester.py
-```
 
-## لاگ
-دکمه «کپی کل لاگ‌ها به Clipboard» تمام لاگ‌های درخواست‌ها، پاسخ‌های موفق و خطاها را کپی می‌کند.
-اگر چیزی کار نکرد، کل لاگ را برای ChatGPT بفرست.
+UI:
+کارت‌های قیمت کوچک‌تر و فشرده‌تر شده‌اند و لاگ بخش اصلی پنجره را می‌گیرد.
+اسکرول عمودی و افقی برای لاگ وجود دارد.
+دکمه کپی کل لاگ‌ها همه لاگ‌های ذخیره‌شده را در Clipboard می‌گذارد.
 
-## نکته
-قیمت طلا و نقره از اونس تروا به گرم تبدیل می‌شود:
-1 troy oz = 31.1034768 g
+فرمول طلا:
+Gold USD/oz / 31.1034768 * 0.75 * USDT/IRR
 
-طلای ۱۸ عیار:
-Gold USD/oz / 31.1034768 * 0.75 * USDT/IRT
+فرمول نقره:
+Silver USD/oz / 31.1034768 * USDT/IRR
 
-این عدد قیمت خام تئوریک است و شامل اجرت، مالیات، حباب و اختلاف بازار طلای ایران نیست.
+فرمول نفت:
+WTI USD/barrel * USDT/IRR
+
+فرمول BTC/ETH:
+USD price * USDT/IRR
+
+نکته:
+قیمت طلای ۱۸ عیار محاسبه‌شده قیمت خام تئوریک است و شامل اجرت، مالیات، حباب و اختلاف بازار ایران نیست.
