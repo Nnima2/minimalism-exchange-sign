@@ -1,11 +1,10 @@
-::: {align="center"}
+
 # 📈 Market Live Tester
 
 **A lightweight Python dashboard for monitoring multiple markets in one
 place.**
 
 💵 Currency   ·   🥇 Gold   ·   🛢️ Oil   ·   ₿ Crypto   ·   🇮🇷 TSE
-:::
 
 ------------------------------------------------------------------------
 
