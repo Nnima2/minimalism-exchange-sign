@@ -61,6 +61,4 @@ Instead of checking several markets separately:
 
 ------------------------------------------------------------------------
 
-::: {align="center"}
 **Python 🐍 · Tkinter 🖥️ · Public APIs 🌐 · Market Data 📊**
-:::
